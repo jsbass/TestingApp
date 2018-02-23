@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Raven.Client.Documents.Linq;
 using TestingApp.Models;
 using TestingApp.Models.DB;
 using TestingApp.Models.Raven;
@@ -25,49 +26,64 @@ namespace TestingApp.Controllers.Api
         {
             var includeFields = IncludeField.ParseList(include);
 
-            using (var db = new TestingContext())
+            using (var db = RavenStore.Store.OpenAsyncSession())
             {
-                return Ok(await db.Groups.Select(g => new Models.Outgoing.Group()
+                List<Models.Raven.Group> groups = new List<Models.Raven.Group>();
+                if (includeFields.Any(f => f.HasNameAndFilter("tests", "")))
                 {
-                    Description = g.Description,
+                    groups = await db.Query<Models.Raven.Group>().Include(g => g.Tests).ToListAsync();
+                }
+                else
+                {
+                    groups = await db.Query<Models.Raven.Group>().ToListAsync();
+                }
+
+                return Ok(groups.Select(g => new Models.Outgoing.Group()
+                {
                     Id = g.Id,
                     Name = g.Name,
-                    Tests = g.Tests.Select(t => new Models.Outgoing.Test()
+                    Description = g.Description,
+                    Tests = g.Tests.Select(t =>
                     {
-                        Description = t.Description,
-                        Id = t.Id,
-                        Name = t.Name,
-                        SerializeGroup = false
+                        var test = db.LoadAsync<Models.Raven.Group>(t).Result;
+                        return new Test()
+                        {
+                            Description = test.Description,
+                            Name = test.Name,
+                            Id = test.Id,
+                            SerializeGroup = false
+                        };
                     }).ToList(),
                     SerializeTests = includeFields.Any(f => f.HasNameAndFilter("tests", ""))
-                }).ToListAsync());
+                }));
             }
         }
         
         // GET: api/Groups/5
         [HttpGet]
         [Route("{id}")]
-        public async Task<IActionResult> Get(int id, string include)
+        public async Task<IActionResult> Get(string id, string include)
         {
             var includeFields = IncludeField.ParseList(include);
-            using (var db = new TestingContext())
+
+            using (var db = RavenStore.Store.OpenAsyncSession())
             {
-                var group = await db.Groups.Include(g => g.Tests).SingleOrDefaultAsync(g => g.Id == id);
-                if (group == null)
-                {
-                    return NotFound();
-                }
+                var group = await db.Include<Models.Raven.Group>(g => g.Tests).LoadAsync<Models.Raven.Group>(id);
                 return Ok(new Models.Outgoing.Group()
                 {
-                    Description = group.Description,
                     Id = group.Id,
                     Name = group.Name,
-                    Tests = group.Tests.Select(t => new Models.Outgoing.Test()
+                    Description = group.Description,
+                    Tests = group.Tests.Select(t =>
                     {
-                        Description = t.Description,
-                        Id = t.Id,
-                        Name = t.Name,
-                        SerializeGroup = false
+                        var test = db.LoadAsync<Models.Raven.Group>(t).Result;
+                        return new Test()
+                        {
+                            Description = test.Description,
+                            Name = test.Name,
+                            Id = test.Id,
+                            SerializeGroup = false
+                        };
                     }).ToList(),
                     SerializeTests = includeFields.Any(f => f.HasNameAndFilter("tests", ""))
                 });
@@ -77,24 +93,19 @@ namespace TestingApp.Controllers.Api
         // PUT: api/Groups/5
         [HttpPut]
         [Route("{id}")]
-        public async Task<IActionResult> Update([FromRoute] int id, [FromBody] Group model)
+        public async Task<IActionResult> Update([FromRoute] string id, [FromBody] Group model)
         {
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
 
-            using (var db = new TestingContext())
+            using (var db = RavenStore.Store.OpenAsyncSession())
             {
-                var group = await db.Groups.SingleOrDefaultAsync(g => g.Id == id);
-                if (group == null)
-                {
-                    return NotFound();
-                }
-
+                var group = await db.LoadAsync<Group>($"group/{id}");
                 group.Description = model.Description;
                 group.Name = model.Name;
-                
+
                 await db.SaveChangesAsync();
 
                 return NoContent();
@@ -109,16 +120,15 @@ namespace TestingApp.Controllers.Api
             {
                 return BadRequest(ModelState);
             }
-
-            using (var db = new TestingContext())
+            using (var db = RavenStore.Store.OpenAsyncSession())
             {
-                var group = new Models.DB.Group()
+                var group = new Models.Raven.Group()
                 {
-                    Name = model.Name,
-                    Description = model.Description
+                    Description = model.Description,
+                    Name = model.Name
                 };
 
-                db.Groups.Add(group);
+                await db.StoreAsync(group, null, null);
                 await db.SaveChangesAsync();
 
                 return CreatedAtAction("Get", new {id = group.Id}, group);
@@ -128,7 +138,7 @@ namespace TestingApp.Controllers.Api
         // DELETE: api/Groups/5
         [HttpDelete]
         [Route("{id}")]
-        public async Task<IActionResult> Delete([FromRoute] int id)
+        public async Task<IActionResult> Delete([FromRoute] string id)
         {
             if (!ModelState.IsValid)
             {
@@ -141,43 +151,26 @@ namespace TestingApp.Controllers.Api
                 await db.SaveChangesAsync();
                 return NoContent();
             }
-            using (var db = new TestingContext())
-            {
-                var group = await db.Groups.SingleOrDefaultAsync(m => m.Id == id);
-                if (group == null)
-                {
-                    return NotFound();
-                }
-
-                db.Groups.Remove(group);
-                await db.SaveChangesAsync();
-
-                return Ok(group);
-            }
         }
 
         #region ManagingChildren
         [HttpGet]
         [Route("{id}/tests")]
-        public async Task<IActionResult> GetTests(int id)
+        public async Task<IActionResult> GetTests(string id)
         {
             using (var db = RavenStore.Store.OpenAsyncSession())
             {
-            }
-
-            using (var db = new TestingContext())
-            {
-                var group = await db.Groups.Include(g => g.Tests).SingleOrDefaultAsync(g => g.Id == id);
+                var group = await db.Include<Models.Raven.Group>(g => g.Tests).LoadAsync<Models.Raven.Group>(id);
                 if (group == null)
                 {
                     return NotFound();
                 }
-
-                return Ok(group.Tests.Select(t => new Models.Outgoing.Test()
+                var tests = group.Tests.Select(async t => await db.LoadAsync<Models.Raven.Test>(t)).Select(t => t.Result).ToList();
+                return Ok(tests.Select(t => new Models.Outgoing.Test()
                 {
                     Description = t.Description,
-                    Id = t.Id,
                     Name = t.Name,
+                    Id = t.Id,
                     SerializeGroup = false
                 }));
             }
@@ -185,25 +178,25 @@ namespace TestingApp.Controllers.Api
 
         [HttpPut]
         [Route("{groupId}/tests/{testId}")]
-        public async Task<IActionResult> AddTest(int groupId, int testId)
+        public async Task<IActionResult> AddTest(string groupId, string testId)
         {
-            using (var db = new TestingContext())
+            using (var db = RavenStore.Store.OpenAsyncSession())
             {
-                var group = await db.Groups.Include(g => g.Tests).SingleOrDefaultAsync(g => g.Id == groupId);
-                var test = await db.Tests.SingleOrDefaultAsync(t => t.Id == testId);
+                var group = await db.LoadAsync<Models.Raven.Group>(groupId);
                 if (group == null)
                 {
-                    return NotFound(new { message = "group not found"});
+                    return NotFound(new {message = "group not found"});
                 }
-
-                if (test == null)
+                if (!group.Tests.Contains(testId))
                 {
-                    return NotFound(new { message = "test not found"});
+                    var test = await db.LoadAsync<Models.Raven.Test>(testId);
+                    if (test == null)
+                    {
+                        return NotFound(new { message = "test not found" });
+                    }
+
+                    group.Tests.Add(testId);
                 }
-
-                group.Tests.Add(test);
-
-                await db.SaveChangesAsync();
 
                 return NoContent();
             }
@@ -211,25 +204,25 @@ namespace TestingApp.Controllers.Api
 
         [HttpDelete]
         [Route("{groupId}/tests/{testId}")]
-        public async Task<IActionResult> RemoveTest(int groupId, int testId)
+        public async Task<IActionResult> RemoveTest(string groupId, string testId)
         {
-            using (var db = new TestingContext())
+            using (var db = RavenStore.Store.OpenAsyncSession())
             {
-                var group = await db.Groups.Include(g => g.Tests).SingleOrDefaultAsync(g => g.Id == groupId);
-                var test = await db.Tests.SingleOrDefaultAsync(t => t.Id == testId);
+                var group = await db.LoadAsync<Models.Raven.Group>(groupId);
                 if (group == null)
                 {
                     return NotFound(new { message = "group not found" });
                 }
-
-                if (test == null)
+                if (group.Tests.Contains(testId))
                 {
-                    return NotFound(new { message = "test not found" });
+                    var test = await db.LoadAsync<Models.Raven.Test>(testId);
+                    if (test == null)
+                    {
+                        return NotFound(new { message = "test not found" });
+                    }
+
+                    group.Tests.Remove(testId);
                 }
-
-                group.Tests.Remove(test);
-
-                await db.SaveChangesAsync();
 
                 return NoContent();
             }

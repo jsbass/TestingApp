@@ -1,0 +1,19 @@
+﻿@{
+    ViewData["Title"] = "Index";
+    Layout = null;
+}
+<!DOCTYPE html>
+<html>
+<head>
+    <base href="@Context.Request.PathBase" />
+</head>
+<body>
+<app-root></app-root>
+    
+<script asp-src-include="~/dist/inline*.bundle.js"></script>
+<script asp-src-include="~/dist/polyfills*.bundle.js"></script>
+<script asp-src-include="~/dist/scripts*.bundle.js"></script>
+<script asp-src-include="~/dist/vendor*.bundle.js"></script>
+<script asp-src-include="~/dist/main*.bundle.js"></script>
+</body>
+</html>

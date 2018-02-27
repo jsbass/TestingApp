@@ -20,12 +20,23 @@ namespace TestingApp.Models.Outgoing
         [JsonProperty("tests")]
         public List<Test> Tests { get; set; }
 
+        [JsonProperty("children")]
+        public List<Group> Children { get; set; }
+
+        [JsonIgnore]
+        public bool SerializeHeirarchy { get; set; }
+
         [JsonIgnore]
         public bool SerializeTests { get; set; }
 
         public bool ShouldSerializeTests()
         {
             return SerializeTests;
+        }
+        
+        public bool ShouldSerializeChildren()
+        {
+            return SerializeHeirarchy;
         }
     }
 }

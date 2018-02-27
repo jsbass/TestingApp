@@ -13,6 +13,11 @@ namespace TestingApp.Models.Raven
 
         public List<Step> Steps { get; set; }
 
+        public Test()
+        {
+            Steps = new List<Step>();
+        }
+
         public class Step
         {
             public string Description { get; set; }

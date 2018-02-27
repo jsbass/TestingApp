@@ -17,15 +17,21 @@ namespace TestingApp.Models.Outgoing
         [JsonProperty("description")]
         public string Description { get; set; }
 
-        [JsonProperty("group")]
-        public Group Group { get; set; }
+        [JsonProperty("steps")]
+        public List<Step> Steps { get; set; }
         
         [JsonIgnore]
-        public bool SerializeGroup { get; set; }
+        public bool SerializeSteps { get; set; }
 
-        public bool ShouldSerializeGroup()
+        public bool ShouldSerializeSteps()
         {
-            return SerializeGroup;
+            return SerializeSteps;
+        }
+
+        public class Step
+        {
+            [JsonProperty("description")]
+            public string Description { get; set; }
         }
     }
 }

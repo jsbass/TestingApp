@@ -12,5 +12,10 @@ namespace TestingApp.Models.Raven
         public string Description { get; set; }
         public string Parent { get; set; }
         public List<string> Tests { get; set; }
+
+        public Group()
+        {
+            Tests = new List<string>();
+        }
     }
 }

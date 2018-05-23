@@ -1,0 +1,37 @@
+html, body {
+    margin: 0;
+    padding: 0;
+}
+
+.sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 200px;
+    background-color: green;
+    overflow: hidden;
+    transition: width 1s;
+    &__collapse {
+        position: absolute;
+        right: 0;
+        top: 0;
+        height: 100%;
+        width: 20px;
+        background-color: black;
+        cursor: ew-resize;
+    }
+
+    &.collapse {
+        width: 20px;
+    }
+}
+
+.viewport {
+    position: absolute;
+    top: 0;
+    left: 20px;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}

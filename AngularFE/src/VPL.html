@@ -1,0 +1,499 @@
+<html>
+<head></head>
+<body style="background-color: red; padding: 0; margin: 0">
+	<canvas style="position: absolute; left: 0; top: 0; width: 100%; height: 100%" id="canvas"></canvas>
+<script id="draw">
+	function drawDiag() {
+		ctx.save();
+		ctx.fillStyle = 'black';
+		ctx.font = '15px Arial';
+		ctx.fillText('Camera x    : ' + camera.x, 0, 10);
+		ctx.fillText('Camera y    : ' + camera.y, 0, 30);
+		ctx.fillText('Camera scale: ' + camera.scale, 0, 50);
+		ctx.fillText('SelectBox: [' + selectBox.x + ', ' + selectBox.y + ', ' + selectBox.w + ', ' + selectBox.h + ']', 0, 70);
+		ctx.restore();
+	}
+	
+	function drawNode(n) {
+		var h, w, hHeader, hPerConnection, x, y;
+		
+		x = n.x;
+		y = n.y;
+		var topLeft = pointToPixel(x, y+n.h);
+		var bottomRight = pointToPixel(x+n.w, y);
+		
+		hPerConnection = 25*camera.scale;
+		h = bottomRight.y - topLeft.y;
+		w = bottomRight.x - topLeft.x;
+		x = topLeft.x;
+		y = topLeft.y;
+		hHeader = n.hHeader * camera.scale;
+		wConn = w/2 - 20*camera.scale;
+		ctx.save();
+		//drawBase
+		if(n.selected) {
+			ctx.fillStyle = 'pink';
+		} else {
+			ctx.fillStyle = 'white';
+		}
+		ctx.fillRect(x, y, w, h);
+		//header
+		ctx.fillStyle = 'red';
+		ctx.fillRect(x, y, w, hHeader);
+		ctx.fillStyle = 'white';
+		ctx.font = 30*camera.scale + 'px Arial';
+		ctx.textBaseline = "top";
+		ctx.fillText(n.label, x+10*camera.scale, y+10*camera.scale, w);
+		//inputs
+		ctx.textBaseline = "middle";
+		ctx.fillStyle = 'black';
+		ctx.textAlign = 'left';
+		ctx.font = 20*camera.scale + 'px Arial';
+		n.inputs.forEach(function(input, i, arr) {
+			ctx.beginPath();
+			ctx.arc(x+15*camera.scale, y+hHeader+i*hPerConnection+20*camera.scale, 8*camera.scale, 0, 2*Math.PI);
+			ctx.stroke();
+			ctx.fillText(input.label, x+28*camera.scale, y+hHeader+i*hPerConnection+20*camera.scale, w/2-33*camera.scale);
+		});
+		//outputs
+		ctx.textAlign = 'right';
+		n.outputs.forEach(function(input, i, arr) {
+			ctx.beginPath();
+			ctx.arc(x+w-15*camera.scale, y+hHeader+i*hPerConnection+20*camera.scale, 8*camera.scale, 0, 2*Math.PI);
+			ctx.stroke();
+			ctx.fillText(input.label, x+w-28*camera.scale, y+hHeader+i*hPerConnection+20*camera.scale, w/2-33*camera.scale);
+		});
+		ctx.restore();
+	}
+	function drawRect(x, y, w, h, color) {
+		ctx.save();
+		ctx.fillStyle = color;
+		topleft = pointToPixel(x, y+h);
+		bottomright = pointToPixel(x+w, y);
+		ctx.fillRect(topleft.x, topleft.y, bottomright.x - topleft.x, bottomright.y - topleft.y);
+		ctx.restore();
+	}
+	function drawAxis() {
+		var origin = pointToPixel(0, 0);
+		ctx.save();
+		ctx.strokeStyle = 'black';
+		ctx.beginPath();
+		//y axis
+		ctx.moveTo(origin.x, 0);
+		ctx.lineTo(origin.x, ctx.canvas.height)
+		//x axis
+		ctx.moveTo(0, origin.y);
+		ctx.lineTo(ctx.canvas.width, origin.y);
+		ctx.stroke();
+		ctx.restore();
+	}
+	function drawGrid() {
+		ctx.save()
+		ctx.fillStyle = 'gray';
+		ctx.strokeStyle = 'lightgray';
+		
+		//background
+		ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+		
+		ctx.beginPath();
+		//grid
+		for(var i=0; i < (ctx.canvas.width / widthBetweenLines) + 1; i++) {
+			ctx.moveTo(i*widthBetweenLines + (camera.x%widthBetweenLines), 0);
+			ctx.lineTo(i*widthBetweenLines + (camera.x%widthBetweenLines), ctx.canvas.height);
+		}
+		for(var j=0; j < (ctx.canvas.height / heightBetweenLines) + 1; j++) {
+			ctx.moveTo(0, j*heightBetweenLines + (-camera.y%heightBetweenLines));
+			ctx.lineTo(ctx.canvas.width, j*heightBetweenLines + (-camera.y%heightBetweenLines));
+		}
+		ctx.stroke();
+		ctx.closePath();
+		
+		ctx.restore();
+		drawAxis();
+	}
+	
+	function drawSelect() {
+		if(selectBox.show) {
+			drawRect(selectBox.x, selectBox.y, selectBox.w, selectBox.h, 'rgba(0,0,0,.1)');
+		}
+	}
+	function draw() {
+		ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height);
+		drawGrid();
+		drawSelect();
+		//draw nodes in reverse order so top nodes are first
+		for(var i=nodes.length-1;i>=0;i--) {
+			drawNode(nodes[i]);
+		}
+		drawDiag();
+	}
+</script>
+<script id="data">
+	function Node(x, y, label, type, inputs, outputs) {
+		this.x = x;
+		this.y = y;
+		this.inputs = inputs;
+		this.outputs = outputs;
+		var _label = label;
+		var _type = type;
+		
+		this.selected = false;
+		var cache;
+		Object.defineProperties(this, {
+			inputs: {
+				get: function() {
+					delete this.inputs;
+					return this.inputs = Object.freeze(inputs.slice());
+				}
+			},
+			outputs: {
+				get: function() {
+					delete this.outputs;
+					return this.outputs = Object.freeze(outputs.slice());
+				}
+			},
+			h: {
+				get: function() {
+					delete this.h;
+					return this.h = Math.max(this.inputs.length, this.outputs.length) * (25 /*h per connection*/) + this.hHeader + 20 /*padding*/;
+				}
+			},
+			hHeader: {
+				get: function() {
+					delete this.hHeader;
+					if(this.label != "" && this.label != null) {
+						return this.hHeader = 50;
+					} else {
+						return this.hHeader = 10;
+					}
+				}
+			},
+			label: {
+				get: function() {return _label;}
+			},
+			w: {
+				get: function () {return 300;}
+			},
+			type: {
+				get: function() {return _type;}
+			}
+		});
+	};
+
+	var nodes = [];
+	var n = 50;
+	for(var i=0;i<n;i++) {
+		var n_in = Math.random()*5;
+		var n_out = Math.random()*5;
+		var inputs = [];
+		var outputs = [];
+		for(var i_in=0;i_in<n_in;i_in++) {
+			inputs.push({
+				label: "in " + i_in,
+				type: "bool"
+			});
+		}
+		for(var i_out=0;i_out<n_out;i_out++) {
+			outputs.push({
+				label: "out " + i_out,
+				type: "bool"
+			});
+		}
+		nodes.push(new Node(
+			Math.random() > 0.5 ? -(Math.random()+.3)*n*10 : (Math.random()+.1)*n*10,
+			Math.random() > 0.5 ? -(Math.random()+.3)*n*10 : (Math.random()+.3)*n*10,
+			"node " + i,
+			"event",
+			inputs,
+			outputs));
+	}
+</script>
+<script>	
+	var canvas = document.getElementById('canvas');
+	var ctx = canvas.getContext('2d');
+	ctx.canvas.width = ctx.canvas.offsetWidth;
+	ctx.canvas.height = ctx.canvas.offsetHeight;
+	window.onresize = function(e) {
+		console.log('resize');
+		ctx.canvas.width = ctx.canvas.offsetWidth;
+		ctx.canvas.height = ctx.canvas.offsetHeight;
+		console.log(ctx.canvas.width, ctx.canvas.height, ctx.canvas.offsetWidth, ctx.canvas.offsetHeight);
+		camera.h = ctx.canvas.height;
+		camera.w = ctx.canvas.width;
+		requestAnimationFrame(draw);
+	};
+	var camera = {
+		x: 0,
+		y: 0,
+		w: ctx.canvas.width,
+		h: ctx.canvas.height,
+		scale: 1
+	}
+	
+	var widthBetweenLines = 50;
+	var heightBetweenLines = 50;
+	var selected = [];
+	var selectBox = {
+		x: 0,
+		y: 0,
+		w: 0,
+		h: 0,
+		show: false
+	}
+	
+	var contextMenu = {
+		x: 0,
+		y: 0,
+		show: false,
+		items: [
+			{
+				label: "Add new rect",
+				action: function() {
+					rects.push({
+						x: x,
+						y: y,
+						w: 100,
+						h: 100
+					});
+				}
+			}
+		]
+	}
+	
+	
+	
+	function pointToPixel(x, y) {
+		return {
+			x: camera.x + x*camera.scale,
+			y: -(camera.y + y*camera.scale)
+		};
+	}
+
+	function rectsCollide(a, b) {
+		if(a.w<0||a.h<0||b.w<0||b.h<0) {
+			console.warn('one of the rects has negative dimensions. Should be positive indefinite');
+			console.warn(a.w,a.h,b.w,b.h);
+		}
+		var result =
+			(  a.x <= b.x+b.w
+			&& b.x <= a.x+a.w
+			&& a.y <= b.y+b.h
+			&& b.y <= a.y+a.h);
+		return result;
+	}
+	
+	function isInRect(p, r) {
+		var result =
+			(  p.x >= r.x
+			&& p.y >= r.y
+			&& p.x < r.x+r.w
+			&& p.y < r.y+r.h);
+		return result;
+		if(p.x < r.x) return false;
+		if(p.y < r.y) return false;
+		if(p.x >= r.x+r.w) return false;
+		if(p.y >= r.y+r.h) return false;
+		return true;
+	}
+		
+	// var nodes = [
+	// 	{
+	// 		id: 0,
+	// 		type: "flow",
+	// 		label: "If",
+	// 		x: 100,
+	// 		y: 100,
+	// 		w: 300,
+	// 		get h() {
+	// 			return Math.max(this.inputs.length, this.outputs.length) * (25 /*h per connection*/) + this.hHeader + 20 /*padding*/;
+	// 		},
+	// 		get hHeader() {
+	// 			if(this.label != "" && this.label != null) {
+	// 				return 50;
+	// 			} else {
+	// 				return 10;
+	// 			}
+	// 		},
+	// 		inputs: [
+	// 			{
+	// 				label: "in",
+	// 				type: "execute"
+	// 			},
+	// 			{
+	// 				label: "super long input text",
+	// 				type: "boolean"
+	// 			}
+	// 		],
+	// 		outputs: [
+	// 			{
+	// 				label: "true",
+	// 				type: "execute"
+	// 			},
+	// 			{
+	// 				label: "super long output text",
+	// 				type: "execute"
+	// 			}
+	// 		]
+	// 	}
+	// ];
+	function pixelToPoint(x, y) {
+		return {
+			x:  (x - camera.x) / camera.scale,
+			y: -(y + camera.y) / camera.scale
+		}
+	}
+	
+	requestAnimationFrame(draw);
+	
+	click = function(event) {
+		switch(event.button) {
+			case(0):
+				var point = pixelToPoint(event.offsetX, event.offsetY);
+				var selectedRect = -1;
+				for(var i=0;i<nodes.length;i++) {
+					if(isInRect(point, nodes[i])) {
+						nodes[i].selected = true;
+						selectedRect = i;
+						break;
+					}
+				}
+				if(selectedRect == -1) {
+					selected.forEach(function(i) { nodes[i].selected = false; });
+					selected = [];
+				}
+				else if(selected.indexOf(i) == -1) {
+					selected.forEach(function(i){nodes[i].selected = false; });
+					nodes[i].selected = true;
+					selected = [i];
+				}
+				break;
+			case (2):
+				console.log('context menu');
+				break;
+			requestAnimationFrame(draw);
+		}
+	}
+	
+	var scaleAmount = 0.001;
+	canvas.onmousewheel = function(event) {
+		var point = pixelToPoint(event.offsetX, event.offsetY);
+		camera.scale -= event.deltaY*scaleAmount;
+		camera.scale = Math.max(.1, camera.scale);
+		
+		camera.x = event.offsetX-point.x*camera.scale;
+		camera.y = -event.offsetY-point.y*camera.scale;
+		requestAnimationFrame(draw);
+	}
+	
+	canvas.onmousemove = function(event) {
+		clickFlags[event.button] = false;
+		if(mouseDownButton != -1) {
+			var old = pixelToPoint(oldPoint.x, oldPoint.y);
+			var point = pixelToPoint(event.offsetX, event.offsetY);
+			switch(mouseDownButton) {
+				case (0): //left - drag select box
+					switch(leftClickMode) {
+						case('move'):
+							selected.forEach(function (i) {
+								nodes[i].x += point.x - old.x;
+								nodes[i].y += point.y - old.y;
+							});
+							break;
+						case('select'):
+							selectBox.w = point.x - selectBox.x;
+							selectBox.h = point.y - selectBox.y;
+							selected.forEach(function(i) { nodes[i].selected = false; });
+							selected = [];
+							for(var i=0;i<nodes.length;i++) {
+								var normBox = {
+									x: selectBox.w < 0 ? selectBox.x+selectBox.w : selectBox.x,
+									y: selectBox.h < 0 ? selectBox.y+selectBox.h : selectBox.y,
+									w: selectBox.w < 0 ? -selectBox.w : selectBox.w,
+									h: selectBox.h < 0 ? -selectBox.h : selectBox.h
+								};
+								if(rectsCollide(nodes[i], normBox)) {
+									nodes[i].selected = true;
+									selected.push(i);
+								}
+							}
+							break;
+					}
+					break;
+				case(1): //middle - move camera
+					camera.x += (event.offsetX - oldPoint.x);
+					camera.y += -(event.offsetY - oldPoint.y);
+					break;
+			}
+			
+			oldPoint.x = event.offsetX;
+			oldPoint.y = event.offsetY;
+		}
+		requestAnimationFrame(draw);
+	}
+	var mouseDownButton = -1;
+	var leftClickMode = '';
+	clickFlags = {};
+	var oldPoint = {
+		x: 0,
+		y: 0
+	};
+	
+	canvas.oncontextmenu = function (e) {
+		e.preventDefault();
+	}
+
+	document.onmouseup = function(event) {
+		leftClickMode = '';
+		if(clickFlags[event.button]) {
+			click(event);
+		}
+		clickFlags[event.button] = false;
+		if(event.button == mouseDownButton) {
+			mouseDownButton = -1;
+			switch(event.button) {
+				case(0):
+					selectBox.show = false;
+					break;
+			}
+		}
+		requestAnimationFrame(draw);
+	};
+	
+	canvas.onmousedown = function (event) {
+		contextMenu.show = false;
+		clickFlags[event.button] = true;
+		//middle
+		if(mouseDownButton == -1) {
+			mouseDownButton = event.button;
+			oldPoint.x = event.offsetX;
+			oldPoint.y = event.offsetY;
+			switch(mouseDownButton) {
+				case(0):
+					var point = pixelToPoint(event.offsetX, event.offsetY);
+					var selectIndex;
+					if((selectIndex = nodes.findIndex((r) => isInRect(point,r))) != -1) {
+						if(selected.indexOf(selectIndex) == -1) {
+							selected.forEach(function(i) { nodes[i].selected = false });
+							nodes[selectIndex].selected = true;
+							selected = [ selectIndex ];
+						}
+						console.log(selectIndex);
+						leftClickMode = 'move';
+					} else {
+						leftClickMode = 'select';
+						selected.forEach(function(i) { nodes[i].selected = false });
+						selected = [];
+						selectBox.x = point.x;
+						selectBox.y = point.y;
+						selectBox.w = 0;
+						selectBox.h = 0;
+						selectBox.show = true;
+					}
+					break;
+			}
+		}
+		requestAnimationFrame(draw);
+	};
+</script>
+</body>
+</html>
